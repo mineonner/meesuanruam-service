@@ -19,10 +19,12 @@ namespace meesuanruam_service.Controllers
         private readonly ILogger<UserController> _logger;
         private readonly EmailService _emailService;
         private readonly OrgUnitService _orgUnitService;
+        private readonly FileStorageService _storage;
         private readonly string _keyProject;
-        public AdminController(ILogger<UserController> logger, meeDB _context, IConfiguration config, EmailService emailService, OrgUnitService orgUnitService)
+        public AdminController(ILogger<UserController> logger, meeDB _context, IConfiguration config, EmailService emailService, OrgUnitService orgUnitService, FileStorageService storage)
         {
             _orgUnitService = orgUnitService;
+            _storage = storage;
             _logger = logger;
             _dbContext = _context;
             _emailService = emailService;
@@ -54,7 +56,20 @@ namespace meesuanruam_service.Controllers
             {
                 if (long.TryParse(f.path, out long fileId))
                 {
-                    f.path = baseUrl + _hashService.createFileToken(fileId, orgCode);
+                    f.path = baseUrl + _hashService.createFileToken(fileId, orgCode, "file");
+                }
+            }
+        }
+
+        private void AttachProjectFileLinks(List<ProjectFileResModel>? files, string orgCode)
+        {
+            if (files == null) return;
+            string baseUrl = FileDownloadBaseUrl();
+            foreach (ProjectFileResModel f in files)
+            {
+                if (long.TryParse(f.path, out long fileId))
+                {
+                    f.path = baseUrl + _hashService.createFileToken(fileId, orgCode, "project_file");
                 }
             }
         }
@@ -447,8 +462,20 @@ namespace meesuanruam_service.Controllers
                             id = p.id,
                             acthievement_name = p.acthievement_name,
                             acthievement_value = p.acthievement_value,
+                        }).ToList(),
+                        files = _dbContext.project_file.Where(p => p.project_code == o.code).Select(p => new ProjectFileResModel
+                        {
+                            id = p.id,
+                            measures_prefix = p.measures_prefix,
+                            // เก็บ id ไว้ก่อน เดี๋ยวแปลงเป็นลิงก์ที่เซ็นแล้วหลัง materialize
+                            path = p.id.ToString(),
+                            name = p.name,
+                            type = p.type,
+                            size = p.size,
                         }).ToList()
                     }).First();
+
+                    AttachProjectFileLinks(result.files, CurrentOrgUnit());
                 }
                 else
                 {
@@ -462,6 +489,7 @@ namespace meesuanruam_service.Controllers
                         measures = new List<MeasuresResModel>(),
                         process = new List<ProcessResModel>(),
                         indicators_acthievement = new List<IndicatorsActhievementResModel>(),
+                        files = new List<ProjectFileResModel>(),
                     };
                 }
 
@@ -637,6 +665,11 @@ namespace meesuanruam_service.Controllers
 
                     List<INDICATORS_ACTHIEVEMENT> ac = _dbContext.indicators_acthievement.Where(o => o.project_code == projectCode).ToList();
                     _dbContext.indicators_acthievement.RemoveRange(ac);
+
+                    // ลบไฟล์บนดิสก์ด้วย ไม่งั้นจะค้างกินที่ไปตลอดโดยไม่มีอะไรอ้างถึง
+                    List<PROJECT_FILE> pf = _dbContext.project_file.Where(o => o.project_code == projectCode).ToList();
+                    pf.ForEach(o => _storage.Delete(o.file_path));
+                    _dbContext.project_file.RemoveRange(pf);
 
                     _dbContext.SaveChanges();
 

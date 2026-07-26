@@ -66,7 +66,7 @@ namespace meesuanruam_service.services
         /// จำเป็นเพราะ frontend เปิดไฟล์ด้วย &lt;a href&gt; ซึ่งแนบ Authorization header ไม่ได้
         /// อายุสั้นเพื่อจำกัดความเสียหายถ้าลิงก์หลุดออกไปนอกวงผู้มีสิทธิ์
         /// </summary>
-        public string createFileToken(long fileId, string orgUnitCode)
+        public string createFileToken(long fileId, string orgUnitCode, string kind)
         {
             var securityKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_config["Jwt:Key"]));
             var credentials = new SigningCredentials(securityKey, SecurityAlgorithms.HmacSha256);
@@ -76,6 +76,8 @@ namespace meesuanruam_service.services
                 {
                     new Claim("fid", fileId.ToString()),
                     new Claim("org_unit_code", orgUnitCode),
+                    // แยกว่า id นี้อยู่ตาราง FILE หรือ PROJECT_FILE กัน token ข้ามตารางกัน
+                    new Claim("kind", kind),
                 },
                 expires: DateTime.UtcNow.AddMinutes(15),
                 signingCredentials: credentials);
@@ -84,7 +86,7 @@ namespace meesuanruam_service.services
         }
 
         /// <summary>ตรวจลายเซ็นและวันหมดอายุ คืน null ถ้าใช้ไม่ได้</summary>
-        public (long fileId, string orgUnitCode)? readFileToken(string token)
+        public (long fileId, string orgUnitCode, string kind)? readFileToken(string token)
         {
             try
             {
@@ -103,7 +105,7 @@ namespace meesuanruam_service.services
                 new JwtSecurityTokenHandler().ValidateToken(token, parameters, out SecurityToken validated);
                 var payload = ((JwtSecurityToken)validated).Payload;
 
-                return (Convert.ToInt64(payload["fid"]), (string)payload["org_unit_code"]);
+                return (Convert.ToInt64(payload["fid"]), (string)payload["org_unit_code"], (string)payload["kind"]);
             }
             catch
             {

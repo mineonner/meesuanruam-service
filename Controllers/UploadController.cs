@@ -1,3 +1,4 @@
+﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.StaticFiles;
 using meesuanruam_service.DTO;
@@ -17,6 +18,7 @@ namespace meesuanruam_service.Controllers
         private readonly OrgUnitService _orgUnitService;
         private readonly FileStorageService _storage;
         private readonly HashService _hashService;
+        private readonly string _keyProject;
 
         public UploadController(ILogger<UploadController> logger, meeDB context, IConfiguration config,
                                 OrgUnitService orgUnitService, FileStorageService storage)
@@ -26,6 +28,7 @@ namespace meesuanruam_service.Controllers
             _orgUnitService = orgUnitService;
             _storage = storage;
             _hashService = new HashService(config);
+            _keyProject = config["ProjectCode:AesKey"];
         }
 
         /// <summary>
@@ -140,26 +143,31 @@ namespace meesuanruam_service.Controllers
                     return StatusCode(401);
                 }
 
-                FILE? row = _dbContext.file.FirstOrDefault(o => o.id == claims.Value.fileId);
-                if (row == null)
+                (string? filePath, string? fileName) = claims.Value.kind == "project_file"
+                    ? _dbContext.project_file.Where(o => o.id == claims.Value.fileId)
+                          .Select(o => new ValueTuple<string?, string?>(o.file_path, o.name)).FirstOrDefault()
+                    : _dbContext.file.Where(o => o.id == claims.Value.fileId)
+                          .Select(o => new ValueTuple<string?, string?>(o.file_path, o.name)).FirstOrDefault();
+
+                if (filePath == null)
                 {
                     return NotFound();
                 }
 
                 // token ผูกกับ อปท. ตอนออก ถ้าแถวถูกย้ายเจ้าของภายหลังจะไม่ตรงกัน
-                if (!row.file_path.StartsWith(claims.Value.orgUnitCode + "/", StringComparison.Ordinal))
+                if (!filePath.StartsWith(claims.Value.orgUnitCode + "/", StringComparison.Ordinal))
                 {
                     return StatusCode(403);
                 }
 
-                if (!_storage.TryGetFullPath(row.file_path, out string fullPath))
+                if (!_storage.TryGetFullPath(filePath, out string fullPath))
                 {
-                    _logger.LogWarning("แถว FILE id={Id} ชี้ไฟล์ที่ไม่มีอยู่: {FilePath}", row.id, row.file_path);
+                    _logger.LogWarning("แถว {Kind} id={Id} ชี้ไฟล์ที่ไม่มีอยู่: {FilePath}", claims.Value.kind, claims.Value.fileId, filePath);
                     return NotFound();
                 }
 
-                new FileExtensionContentTypeProvider().TryGetContentType(row.name ?? string.Empty, out string? contentType);
-                return PhysicalFile(fullPath, contentType ?? "application/octet-stream", row.name);
+                new FileExtensionContentTypeProvider().TryGetContentType(fileName ?? string.Empty, out string? contentType);
+                return PhysicalFile(fullPath, contentType ?? "application/octet-stream", fileName);
             }
             catch (Exception ex)
             {
@@ -167,6 +175,161 @@ namespace meesuanruam_service.Controllers
                 return StatusCode(500);
             }
         }
+
+        /// <summary>
+        /// ไฟล์แนบของแบบประเมิน ผูกกับตัวชี้วัดรายข้อผ่าน measures_prefix
+        /// ต่างจาก saveImages ตรงที่ผู้ใช้ต้องล็อกอิน จึงอ่าน อปท. จาก claim ไม่ใช่ Origin
+        /// </summary>
+        [HttpPost]
+        [Route("saveProjectFiles")]
+        [Authorize]
+        public async Task<IActionResult> saveProjectFiles([FromForm] ProjectFiles body)
+        {
+            DataRespone res = new DataRespone();
+            try
+            {
+                string orgUnitCode = CurrentOrgUnit();
+
+                string projectCode;
+                try
+                {
+                    projectCode = HashService.AesDecryptString(_keyProject, body.code ?? string.Empty);
+                }
+                catch
+                {
+                    return Reject(res, "รหัสโครงการไม่ถูกต้อง");
+                }
+
+                if (!FileStorageService.IsValidProjectCode(projectCode))
+                {
+                    return Reject(res, "รหัสโครงการไม่ถูกต้อง");
+                }
+
+                if (!FileStorageService.IsValidMeasuresPrefix(body.measuresPrefix))
+                {
+                    return Reject(res, $"measuresPrefix '{body.measuresPrefix}' ไม่ถูกรูปแบบ");
+                }
+
+                if (body.formFiles == null || body.formFiles.Count == 0)
+                {
+                    return Reject(res, "ไม่มีไฟล์แนบมาด้วย");
+                }
+
+                if (!_dbContext.project.Any(o => o.code == projectCode && o.org_unit_code == orgUnitCode))
+                {
+                    return Reject(res, $"ไม่พบโครงการ '{projectCode}' ของ อปท. {orgUnitCode}");
+                }
+
+                int existing = _dbContext.project_file.Count(o => o.project_code == projectCode && o.measures_prefix == body.measuresPrefix);
+                if (existing + body.formFiles.Count > FileStorageService.MaxFilesPerRecord)
+                {
+                    return Reject(res, $"แนบได้ไม่เกิน {FileStorageService.MaxFilesPerRecord} ไฟล์ต่อหนึ่งตัวชี้วัด");
+                }
+
+                foreach (IFormFile file in body.formFiles)
+                {
+                    if (file.Length > FileStorageService.MaxBytesPerFile)
+                    {
+                        return Reject(res, $"ไฟล์ '{file.FileName}' ใหญ่เกิน 10MB");
+                    }
+
+                    if (!FileStorageService.IsAllowedExtension(file.FileName))
+                    {
+                        return Reject(res, $"ไม่รองรับไฟล์ '{file.FileName}' รองรับเฉพาะ {FileStorageService.AllowedExtensionList}");
+                    }
+                }
+
+                foreach (IFormFile file in body.formFiles)
+                {
+                    string? safeName = FileStorageService.SanitizeFileName(file.FileName);
+                    if (safeName == null)
+                    {
+                        return Reject(res, $"ชื่อไฟล์ '{file.FileName}' ใช้ไม่ได้");
+                    }
+
+                    string relativePath = FileStorageService.BuildProjectRelativePath(orgUnitCode, projectCode, body.measuresPrefix!, safeName);
+
+                    using (Stream stream = file.OpenReadStream())
+                    {
+                        await _storage.SaveAsync(relativePath, stream);
+                    }
+
+                    // แนบชื่อซ้ำในตัวชี้วัดเดิม = แทนที่ของเดิม ไม่สร้างแถวซ้อน
+                    PROJECT_FILE? dup = _dbContext.project_file.FirstOrDefault(
+                        o => o.project_code == projectCode && o.measures_prefix == body.measuresPrefix && o.name == safeName);
+
+                    if (dup != null)
+                    {
+                        dup.file_path = relativePath;
+                        dup.type = file.ContentType;
+                        dup.size = file.Length;
+                    }
+                    else
+                    {
+                        _dbContext.project_file.Add(new PROJECT_FILE()
+                        {
+                            project_code = projectCode,
+                            measures_prefix = body.measuresPrefix!,
+                            file_path = relativePath,
+                            name = safeName,
+                            type = file.ContentType,
+                            size = file.Length,
+                        });
+                    }
+                }
+
+                _dbContext.SaveChanges();
+
+                res.status = "success";
+                return Ok(res);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "{Path} ล้มเหลว", HttpContext.Request.Path);
+                res.status = "error";
+                res.message = "ระบบขัดข้องชั่วคราว อยู่ระหว่างดำเนินการแก้ไข";
+                return BadRequest(res);
+            }
+        }
+
+        [HttpPost]
+        [Route("deleteProjectFile")]
+        [Authorize]
+        public IActionResult deleteProjectFile([FromQuery] long id)
+        {
+            DataRespone res = new DataRespone();
+            try
+            {
+                string orgUnitCode = CurrentOrgUnit();
+
+                PROJECT_FILE? row = _dbContext.project_file.FirstOrDefault(o => o.id == id);
+                if (row == null)
+                {
+                    return NotFound();
+                }
+
+                if (!row.file_path.StartsWith(orgUnitCode + "/", StringComparison.Ordinal))
+                {
+                    return StatusCode(403);
+                }
+
+                _storage.Delete(row.file_path);
+                _dbContext.project_file.Remove(row);
+                _dbContext.SaveChanges();
+
+                res.status = "success";
+                return Ok(res);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "{Path} ล้มเหลว", HttpContext.Request.Path);
+                return StatusCode(500);
+            }
+        }
+
+        private string CurrentOrgUnit() =>
+            User.FindFirst("org_unit_code")?.Value
+            ?? throw new InvalidOperationException("token ไม่มี org_unit_code กรุณาเข้าสู่ระบบใหม่");
 
         private bool RecordBelongsToOrg(string folder, string code, string orgUnitCode) =>
             folder == "report"
@@ -180,6 +343,14 @@ namespace meesuanruam_service.Controllers
             res.message = reason;
             return BadRequest(res);
         }
+    }
+
+    public class ProjectFiles
+    {
+        /// <summary>รหัสโครงการที่เข้ารหัสแล้ว ตัวเดียวกับที่ getProjectList ส่งออกไป</summary>
+        public string? code { get; set; }
+        public string? measuresPrefix { get; set; }
+        public List<IFormFile> formFiles { get; set; }
     }
 
     public class Files

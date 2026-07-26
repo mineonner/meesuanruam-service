@@ -10,6 +10,7 @@
         public List<MeasuresResModel> measures { get; set; }
         public List<ProcessResModel> process { get; set; }
         public List<IndicatorsActhievementResModel> indicators_acthievement { get; set; }
+        public List<ProjectFileResModel> files { get; set; }
 
     }
 }

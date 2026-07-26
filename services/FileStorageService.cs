@@ -1,4 +1,4 @@
-using System.Text.RegularExpressions;
+﻿using System.Text.RegularExpressions;
 
 namespace meesuanruam_service.services
 {
@@ -22,6 +22,11 @@ namespace meesuanruam_service.services
 
         // ยอมเฉพาะรูปแบบที่ saveReport/saveComment สร้างขึ้นเท่านั้น
         private static readonly Regex PathFilePattern = new(@"^(report/R|comment/C)[0-9]+$", RegexOptions.Compiled);
+
+        // คีย์ตัวชี้วัดที่ไฟล์ของแบบประเมินผูกอยู่ เช่น Policy_Process_1 / TOR_Acthievement_1
+        private static readonly Regex MeasuresPrefixPattern = new(@"^[A-Za-z_]+_(Process|Acthievement)_[0-9]+$", RegexOptions.Compiled);
+
+        private static readonly Regex ProjectCodePattern = new(@"^PR[0-9]+$", RegexOptions.Compiled);
 
         private readonly string _root;
 
@@ -74,6 +79,27 @@ namespace meesuanruam_service.services
 
         public static string BuildRelativePath(string orgUnitCode, string folder, string code, string safeFileName) =>
             $"{orgUnitCode}/{folder}/{code}/{safeFileName}";
+
+        public static bool IsValidMeasuresPrefix(string? prefix) =>
+            !string.IsNullOrWhiteSpace(prefix) && MeasuresPrefixPattern.IsMatch(prefix.Trim());
+
+        public static bool IsValidProjectCode(string? code) =>
+            !string.IsNullOrWhiteSpace(code) && ProjectCodePattern.IsMatch(code.Trim());
+
+        /// <summary>
+        /// ของเดิมเก็บที่ project/{code}/{ชื่อไฟล์} ไม่มีชั้นของตัวชี้วัด
+        /// ทำให้ไฟล์ชื่อซ้ำกันคนละตัวชี้วัดทับกันเอง จึงเพิ่มชั้น prefix เข้ามา
+        /// </summary>
+        public static string BuildProjectRelativePath(string orgUnitCode, string projectCode, string measuresPrefix, string safeFileName) =>
+            $"{orgUnitCode}/project/{projectCode}/{measuresPrefix}/{safeFileName}";
+
+        public void Delete(string relativePath)
+        {
+            if (TryGetFullPath(relativePath, out string fullPath))
+            {
+                File.Delete(fullPath);
+            }
+        }
 
         public async Task SaveAsync(string relativePath, Stream content)
         {
