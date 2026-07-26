@@ -4,7 +4,7 @@
     {
         public Int64 id { get; set; }
         public string report_code { get; set; }
-        public string persernal_type { get; set; }
+        public string? persernal_type { get; set; }
         public string? name_title { get; set; }
         public string? name_title_another { get; set; }
         public string? firstname { get; set; }
@@ -14,5 +14,6 @@
         public string? report_government_agencies { get; set; }
         public string report_detail { get; set; }
         public DateTime create_date { get; set; }
+        public string org_unit_code { get; set; }
     }
 }

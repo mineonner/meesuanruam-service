@@ -47,6 +47,7 @@ namespace meesuanruam_service.services
             var claims = new[]
             {
                 new Claim("email", userInfo.user_email),
+                new Claim("org_unit_code", userInfo.org_unit_code),
                 new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
             };
 
@@ -65,7 +66,8 @@ namespace meesuanruam_service.services
             var payload = new JwtSecurityTokenHandler().ReadJwtToken(token).Payload;
             UserModel result = new UserModel()
             {
-                user_email = (string)payload["email"]
+                user_email = (string)payload["email"],
+                org_unit_code = payload.TryGetValue("org_unit_code", out var org) ? (string)org : null
             };
 
             return result;

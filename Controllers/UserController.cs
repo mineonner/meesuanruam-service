@@ -3,6 +3,7 @@ using meesuanruam_service.DTO;
 using meesuanruam_service.DTO.table;
 using meesuanruam_service.model.request;
 using meesuanruam_service.model.respone;
+using meesuanruam_service.services;
 
 namespace meesuanruam_service.Controllers
 {
@@ -13,11 +14,17 @@ namespace meesuanruam_service.Controllers
     {
         private readonly meeDB _dbContext;
         private readonly ILogger<UserController> _logger;
-        public UserController(ILogger<UserController> logger, meeDB _context)
+        private readonly OrgUnitService _orgUnitService;
+        public UserController(ILogger<UserController> logger, meeDB _context, OrgUnitService orgUnitService)
         {
             _logger = logger;
             _dbContext = _context;
+            _orgUnitService = orgUnitService;
         }
+
+        // อปท. เจ้าของข้อมูล มาจากโดเมนที่ยิงเข้ามา ผู้ร้องไม่ได้ล็อกอินจึงไม่มี JWT ให้อ่าน
+        private string CurrentOrgUnit() =>
+            _orgUnitService.ResolveFromOrigin(HttpContext.Request.Headers["Origin"].ToString());
 
         [HttpGet]
         [Route("getReport")]
@@ -34,6 +41,7 @@ namespace meesuanruam_service.Controllers
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "{Path} ล้มเหลว", HttpContext.Request.Path);
                 res.status = "error";
                 res.message = ex.Message;
                 return BadRequest(res);
@@ -49,6 +57,7 @@ namespace meesuanruam_service.Controllers
             string folder = "report";
             try
             {
+                string orgUnitCode = CurrentOrgUnit();
                 string code;
                 List<REPORT> reportTB = _dbContext.report
                             .OrderByDescending(e => Convert.ToInt32(e.report_code.Substring(1, e.report_code.Length - 1)))
@@ -76,7 +85,8 @@ namespace meesuanruam_service.Controllers
                     telephone = re.telephone,
                     report_government_agencies = re.report_government_agencies,
                     report_detail = re.report_detail,
-                    create_date = DateTime.Now
+                    create_date = DateTime.Now,
+                    org_unit_code = orgUnitCode
                 });
 
                 _dbContext.report_topic.Add(new REPORT_TOPIC()
@@ -113,6 +123,7 @@ namespace meesuanruam_service.Controllers
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "{Path} ล้มเหลว", HttpContext.Request.Path);
                 return StatusCode(500);
             }
 
@@ -129,6 +140,7 @@ namespace meesuanruam_service.Controllers
             string folder = "comment";
             try
             {
+                string orgUnitCode = CurrentOrgUnit();
                 string code;
                 List<COMMENT> comTB = _dbContext.comment
                             .OrderByDescending(e => Convert.ToInt32(e.comment_code.Substring(1, e.comment_code.Length - 1)))
@@ -153,7 +165,8 @@ namespace meesuanruam_service.Controllers
                     plan_topic = saveCom.plan_topic,
                     plan_another_detail = saveCom.plan_another_detail,
                     detail = saveCom.detail,
-                    create_date = DateTime.Now
+                    create_date = DateTime.Now,
+                    org_unit_code = orgUnitCode
                 });
 
                 if (saveCom.files.Count > 0)
@@ -181,6 +194,7 @@ namespace meesuanruam_service.Controllers
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "{Path} ล้มเหลว", HttpContext.Request.Path);
                 return StatusCode(500);
             }
         }

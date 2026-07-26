@@ -11,5 +11,6 @@
         public string? plan_another_detail { get; set; }
         public DateTime create_date { get; set; }
         public string? detail { get; set; }
+        public string org_unit_code { get; set; }
     }
 }

@@ -18,14 +18,26 @@ namespace meesuanruam_service.Controllers
         private readonly DTO.meeDB _dbContext;
         private readonly ILogger<UserController> _logger;
         private readonly EmailService _emailService;
-        private readonly string _keyProject = "REDACTED_ROTATED_KEY";
+        private readonly string _keyProject;
         public AdminController(ILogger<UserController> logger, meeDB _context, IConfiguration config, EmailService emailService)
         {
             _logger = logger;
             _dbContext = _context;
             _emailService = emailService;
             _hashService = new HashService(config);
+            _keyProject = config["ProjectCode:AesKey"];
         }
+
+        // อปท. ของผู้ใช้ที่ล็อกอิน อ่านจาก claim ที่ผ่านการตรวจลายเซ็นแล้ว
+        // ห้ามรับจาก query string หรือ body เพราะปลอมได้ = เห็นข้อมูล อปท. อื่น
+        private string CurrentOrgUnit() =>
+            User.FindFirst("org_unit_code")?.Value
+            ?? throw new InvalidOperationException("token ไม่มี org_unit_code กรุณาเข้าสู่ระบบใหม่");
+
+        // ตารางลูก (measures/process/indicators) ไม่มี org_unit_code
+        // จึงกันที่ตารางแม่จุดเดียว แล้ว query ลูกด้วย project_code ถึงจะปลอดภัย
+        private bool OwnsProject(string projectCode) =>
+            _dbContext.project.Any(o => o.code == projectCode && o.org_unit_code == CurrentOrgUnit());
 
         [HttpPost]
         [Route("login")]
@@ -47,6 +59,7 @@ namespace meesuanruam_service.Controllers
                             var user = new UserModel()
                             {
                                 user_email = result.user_email,
+                                org_unit_code = result.org_unit_code,
                             };
                             var tokenString = _hashService.createJwtToken(user);
 
@@ -77,6 +90,7 @@ namespace meesuanruam_service.Controllers
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "{Path} ล้มเหลว", HttpContext.Request.Path);
                 return StatusCode(500);
             }
         }
@@ -89,8 +103,10 @@ namespace meesuanruam_service.Controllers
             DataRespone res = new DataRespone();
             try
             {
+                string orgCode = CurrentOrgUnit();
                 List<GetReportModel> getReportModel = (from re in _dbContext.report
                                                        join rt in _dbContext.report_topic on re.report_code equals rt.report_code
+                                                       where re.org_unit_code == orgCode
                                                        orderby re.create_date descending
                                                        select new GetReportModel()
                                                        {
@@ -127,6 +143,7 @@ namespace meesuanruam_service.Controllers
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "{Path} ล้มเหลว", HttpContext.Request.Path);
                 return StatusCode(500);
             }
         }
@@ -139,7 +156,8 @@ namespace meesuanruam_service.Controllers
             DataRespone res = new DataRespone();
             try
             {
-                List<GetCommentModel> getComments = _dbContext.comment.OrderByDescending(e => e.create_date).Select(o => new GetCommentModel()
+                string orgCode = CurrentOrgUnit();
+                List<GetCommentModel> getComments = _dbContext.comment.Where(e => e.org_unit_code == orgCode).OrderByDescending(e => e.create_date).Select(o => new GetCommentModel()
                 {
                     gender = o.gender,
                     occupation = o.occupation,
@@ -163,6 +181,7 @@ namespace meesuanruam_service.Controllers
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "{Path} ล้มเหลว", HttpContext.Request.Path);
                 return StatusCode(500);
             }
         }
@@ -204,6 +223,7 @@ namespace meesuanruam_service.Controllers
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "{Path} ล้มเหลว", HttpContext.Request.Path);
                 return StatusCode(500);
             }
         }
@@ -245,6 +265,7 @@ namespace meesuanruam_service.Controllers
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "{Path} ล้มเหลว", HttpContext.Request.Path);
                 return StatusCode(500);
             }
         }
@@ -261,9 +282,10 @@ namespace meesuanruam_service.Controllers
             DateTime endDate = DateTime.Parse(dateRange.end);
             try
             {
+                string orgCode = CurrentOrgUnit();
                 das.building_permit_issuance = (from re in _dbContext.report
                                                 join rt in _dbContext.report_topic on re.report_code equals rt.report_code
-                                                where rt.building_permit_issuance == true
+                                                where rt.building_permit_issuance == true && re.org_unit_code == orgCode
                                                 && re.create_date >= startDate && re.create_date <= endDate
                                                 group re by re.create_date.Date into grouped
                                                 select
@@ -275,7 +297,7 @@ namespace meesuanruam_service.Controllers
 
                 das.procurement_local_road = (from re in _dbContext.report
                                               join rt in _dbContext.report_topic on re.report_code equals rt.report_code
-                                              where rt.procurement_local_road == true
+                                              where rt.procurement_local_road == true && re.org_unit_code == orgCode
                                               && re.create_date >= startDate && re.create_date <= endDate
                                               group re by re.create_date.Date into grouped
                                               select
@@ -287,7 +309,7 @@ namespace meesuanruam_service.Controllers
 
                 das.another = (from re in _dbContext.report
                                join rt in _dbContext.report_topic on re.report_code equals rt.report_code
-                               where rt.another == true
+                               where rt.another == true && re.org_unit_code == orgCode
                                && re.create_date >= startDate && re.create_date <= endDate
                                group re by re.create_date.Date into grouped
                                select
@@ -297,9 +319,9 @@ namespace meesuanruam_service.Controllers
                                    count = grouped.Count()
                                }).Select(o => new List<long> { o.time, o.count }).ToList();
 
-                das.report_per_day = _dbContext.report.Where(re => re.create_date >= startDate && re.create_date <= endDate).GroupBy(re => re.create_date.Date)
+                das.report_per_day = _dbContext.report.Where(re => re.org_unit_code == orgCode && re.create_date >= startDate && re.create_date <= endDate).GroupBy(re => re.create_date.Date)
                     .Select(o => new List<long> { (long)(o.Key - new DateTime(1970, 1, 1)).TotalMilliseconds, o.Count() }).ToList();
-                das.comment_per_day = _dbContext.comment.Where(re => re.create_date >= startDate && re.create_date <= endDate).GroupBy(re => re.create_date.Date)
+                das.comment_per_day = _dbContext.comment.Where(re => re.org_unit_code == orgCode && re.create_date >= startDate && re.create_date <= endDate).GroupBy(re => re.create_date.Date)
                     .Select(o => new List<long> { (long)(o.Key - new DateTime(1970, 1, 1)).TotalMilliseconds, o.Count() }).ToList();
 
                 res.status = "success";
@@ -309,6 +331,7 @@ namespace meesuanruam_service.Controllers
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "{Path} ล้มเหลว", HttpContext.Request.Path);
                 return StatusCode(500);
             }
         }
@@ -322,7 +345,8 @@ namespace meesuanruam_service.Controllers
             List<ProjectInfoResModel> resList = new List<ProjectInfoResModel>();
             try
             {
-                resList = _dbContext.project.Select(o => new ProjectInfoResModel
+                string orgCode = CurrentOrgUnit();
+                resList = _dbContext.project.Where(o => o.org_unit_code == orgCode).Select(o => new ProjectInfoResModel
                 {
                     code = HashService.AesEncryptString(_keyProject, o.code),
                     name = o.name,
@@ -337,6 +361,7 @@ namespace meesuanruam_service.Controllers
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "{Path} ล้มเหลว", HttpContext.Request.Path);
                 res.status = "error";
                 res.message = "ระบบขัดข้องชั่วคราว อยู่ระหว่างดำเนินการแก้ไข";
                 res.result = ex.Message;
@@ -357,6 +382,7 @@ namespace meesuanruam_service.Controllers
                 if (!string.IsNullOrEmpty(code))
                 {
                     string codeDec = HashService.AesDecryptString(_keyProject, code);
+                    if (!OwnsProject(codeDec)) return StatusCode(403);
                     result = _dbContext.project.Where(o => o.code == codeDec).Select(o => new ProjectInfoResModel
                     {
                         code = code,
@@ -405,6 +431,7 @@ namespace meesuanruam_service.Controllers
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "{Path} ล้มเหลว", HttpContext.Request.Path);
                 res.status = "error";
                 res.message = "ระบบขัดข้องชั่วคราว อยู่ระหว่างดำเนินการแก้ไข";
                 res.result = ex.Message;
@@ -433,6 +460,7 @@ namespace meesuanruam_service.Controllers
                 if (!string.IsNullOrEmpty(body.code))
                 {
                     projectCode = HashService.AesDecryptString(_keyProject, body.code);
+                    if (!OwnsProject(projectCode)) return StatusCode(403);
                     PROJECT pro = _dbContext.project.Where(o => o.code == projectCode).First();
                     pro.name = body.name;
                     pro.status = body.status;
@@ -457,7 +485,12 @@ namespace meesuanruam_service.Controllers
                         name = body.name,
                         create_date = DateTime.Now.AddHours(7),
                         create_by = userData.user_email,
-                        status = body.status
+                        status = body.status,
+                        // frontend เดิมยังไม่ส่ง years มา จึงใช้ปี พ.ศ. ปัจจุบันเป็นค่าตั้งต้น
+                        years = string.IsNullOrWhiteSpace(body.years)
+                                ? (DateTime.Now.Year + 543).ToString()
+                                : body.years,
+                        org_unit_code = CurrentOrgUnit()
                     });
                 }
 
@@ -532,6 +565,7 @@ namespace meesuanruam_service.Controllers
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "{Path} ล้มเหลว", HttpContext.Request.Path);
                 res.status = "error";
                 res.message = "ระบบขัดข้องชั่วคราว อยู่ระหว่างดำเนินการแก้ไข";
                 res.result = ex.Message;
@@ -551,6 +585,7 @@ namespace meesuanruam_service.Controllers
                 if (!string.IsNullOrEmpty(code))
                 {
                     string projectCode = HashService.AesDecryptString(_keyProject, code);
+                    if (!OwnsProject(projectCode)) return StatusCode(403);
                     PROJECT pro = _dbContext.project.Where(o => o.code == projectCode).First();
                     _dbContext.project.Remove(pro);
 
@@ -573,6 +608,7 @@ namespace meesuanruam_service.Controllers
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "{Path} ล้มเหลว", HttpContext.Request.Path);
                 res.status = "error";
                 res.message = "ระบบขัดข้องชั่วคราว อยู่ระหว่างดำเนินการแก้ไข";
                 res.result = ex.Message;
@@ -582,12 +618,14 @@ namespace meesuanruam_service.Controllers
 
         [HttpPost]
         [Route("exportProjectInfo")]
+        [Authorize]
         public async Task<IActionResult> exportProjectInfo([FromQuery] string code)
         {
             DataRespone res = new DataRespone();
             try
             {
                 string projectCode = HashService.AesDecryptString(_keyProject, code);
+                if (!OwnsProject(projectCode)) return StatusCode(403);
                 using var workbook = new XLWorkbook();
                 var worksheet = workbook.Worksheets.Add("คะแนนการประเมินภาพรวม");
 
@@ -815,6 +853,7 @@ namespace meesuanruam_service.Controllers
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "{Path} ล้มเหลว", HttpContext.Request.Path);
                 res.status = "error";
                 res.message = "ระบบขัดข้องชั่วคราว อยู่ระหว่างดำเนินการแก้ไข";
                 res.result = ex.Message;

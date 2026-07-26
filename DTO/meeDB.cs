@@ -24,5 +24,7 @@ namespace meesuanruam_service.DTO
         public DbSet<MEASURES> measures { get; set; }
         public DbSet<PROCESS> process { get; set; }
         public DbSet<INDICATORS_ACTHIEVEMENT> indicators_acthievement { get; set; }
+        public DbSet<ORG_UNIT> org_unit { get; set; }
+        public DbSet<PROJECT_FILE> project_file { get; set; }
     }
 }

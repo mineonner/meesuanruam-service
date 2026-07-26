@@ -11,6 +11,7 @@ using System.Text;
 var builder = WebApplication.CreateBuilder(args);
 // Add services to the container.
 builder.Services.AddSingleton<EmailService>();
+builder.Services.AddScoped<OrgUnitService>();
 
 builder.Services.AddApiVersioning(options =>
 {
@@ -39,21 +40,23 @@ var connection = String.Empty;
 if (builder.Environment.IsDevelopment())
 {
     builder.Configuration.AddEnvironmentVariables().AddJsonFile("appsettings.Development.json");
-    connection = builder.Configuration.GetConnectionString("AZURE_SQL_CONNECTIONSTRING");
+    connection = builder.Configuration.GetConnectionString("DOCKER_SQL_CONNECTIONSTRING");
 }
 else
 {
-    connection = Environment.GetEnvironmentVariable("AZURE_SQL_CONNECTIONSTRING");
+    connection = Environment.GetEnvironmentVariable("DOCKER_SQL_CONNECTIONSTRING");
 }
 builder.Services.AddDbContext<meeDB>(options =>
     options.UseSqlServer(connection));
 
-// Add CORS services
+// CORS: อนุญาตเฉพาะโดเมนของ อปท. ที่อยู่ในตาราง ORG_UNIT
+// ห้ามใช้ AllowAnyOrigin() เพราะ endpoint สาธารณะใช้ Origin header หา อปท. เจ้าของข้อมูล
+// เซ็ตถูกเติมหลัง builder.Build() แต่ delegate ถูกเรียกตอนมี request จึงทันเสมอ
+var allowedOrigins = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("AllowSpecificOrigin",
-        policy => policy.WithOrigins("https://www.reportmeesuanruam.com")
-        //policy => policy.WithOrigins("http://localhost:4200")
+    options.AddPolicy("AllowOrgUnitDomains",
+        policy => policy.SetIsOriginAllowed(origin => allowedOrigins.Contains(origin.Trim().TrimEnd('/')))
                         .AllowAnyHeader()
                         .AllowAnyMethod());
 });
@@ -76,6 +79,16 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJw
 
 var app = builder.Build();
 
+// โหลดโดเมนของทุก อปท. ครั้งเดียวตอน startup — ORG_UNIT เป็น single source of truth
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<meeDB>();
+    foreach (var domain in db.org_unit.Select(o => o.domain_name).ToList())
+    {
+        allowedOrigins.Add(domain.Trim().TrimEnd('/'));
+    }
+}
+
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
@@ -86,7 +99,7 @@ if (app.Environment.IsDevelopment())
 //app.UseSwagger();
 //app.UseSwaggerUI();
 
-app.UseCors("AllowSpecificOrigin");
+app.UseCors("AllowOrgUnitDomains");
 
 app.UseHttpsRedirection();
 

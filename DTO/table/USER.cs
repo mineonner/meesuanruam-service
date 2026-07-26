@@ -9,5 +9,6 @@
         public string? token_reset_password { get; set; }
         public DateTime? begin_date { get; set; }
         public DateTime? end_date { get; set; }
+        public string org_unit_code { get; set; }
     }
 }
