@@ -61,6 +61,56 @@ namespace meesuanruam_service.services
             return new JwtSecurityTokenHandler().WriteToken(token);
         }
 
+        /// <summary>
+        /// สร้าง token อายุสั้นสำหรับฝังใน URL ดาวน์โหลดไฟล์แนบ
+        /// จำเป็นเพราะ frontend เปิดไฟล์ด้วย &lt;a href&gt; ซึ่งแนบ Authorization header ไม่ได้
+        /// อายุสั้นเพื่อจำกัดความเสียหายถ้าลิงก์หลุดออกไปนอกวงผู้มีสิทธิ์
+        /// </summary>
+        public string createFileToken(long fileId, string orgUnitCode)
+        {
+            var securityKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_config["Jwt:Key"]));
+            var credentials = new SigningCredentials(securityKey, SecurityAlgorithms.HmacSha256);
+
+            var token = new JwtSecurityToken(_config["Jwt:Issuer"], _config["Jwt:Issuer"],
+                new[]
+                {
+                    new Claim("fid", fileId.ToString()),
+                    new Claim("org_unit_code", orgUnitCode),
+                },
+                expires: DateTime.UtcNow.AddMinutes(15),
+                signingCredentials: credentials);
+
+            return new JwtSecurityTokenHandler().WriteToken(token);
+        }
+
+        /// <summary>ตรวจลายเซ็นและวันหมดอายุ คืน null ถ้าใช้ไม่ได้</summary>
+        public (long fileId, string orgUnitCode)? readFileToken(string token)
+        {
+            try
+            {
+                var parameters = new TokenValidationParameters
+                {
+                    ValidateIssuer = true,
+                    ValidateAudience = true,
+                    ValidateLifetime = true,
+                    ValidateIssuerSigningKey = true,
+                    ValidIssuer = _config["Jwt:Issuer"],
+                    ValidAudience = _config["Jwt:Issuer"],
+                    IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_config["Jwt:Key"])),
+                    ClockSkew = TimeSpan.Zero
+                };
+
+                new JwtSecurityTokenHandler().ValidateToken(token, parameters, out SecurityToken validated);
+                var payload = ((JwtSecurityToken)validated).Payload;
+
+                return (Convert.ToInt64(payload["fid"]), (string)payload["org_unit_code"]);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
         public UserModel DecodingJwtToken(string token)
         {
             var payload = new JwtSecurityTokenHandler().ReadJwtToken(token).Payload;

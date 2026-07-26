@@ -64,3 +64,6 @@ nunit-*.xml
 
 # App config with secrets (JWT key, SMTP password, DB connection string)
 appsettings.json
+
+# ไฟล์แนบตอนรัน dev นอก container
+uploads/

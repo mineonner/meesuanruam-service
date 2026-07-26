@@ -38,6 +38,27 @@ namespace meesuanruam_service.Controllers
 
         // ตารางลูก (measures/process/indicators) ไม่มี org_unit_code
         // จึงกันที่ตารางแม่จุดเดียว แล้ว query ลูกด้วย project_code ถึงจะปลอดภัย
+        // ต้องเป็น URL เต็ม เพราะ frontend อยู่คนละ origin กับ API
+        private string FileDownloadBaseUrl() =>
+            $"{Request.Scheme}://{Request.Host}/api/v1/Upload/file?t=";
+
+        /// <summary>
+        /// แปลง id ที่ query ดึงมาให้เป็นลิงก์ดาวน์โหลดที่เซ็นแล้ว
+        /// ต้องทำหลัง ToList() เพราะ EF แปลการเรียกเมธอด C# ในนิพจน์ query เป็น SQL ไม่ได้
+        /// </summary>
+        private void AttachFileLinks(List<FileAttachment>? files, string orgCode)
+        {
+            if (files == null) return;
+            string baseUrl = FileDownloadBaseUrl();
+            foreach (FileAttachment f in files)
+            {
+                if (long.TryParse(f.path, out long fileId))
+                {
+                    f.path = baseUrl + _hashService.createFileToken(fileId, orgCode);
+                }
+            }
+        }
+
         private bool OwnsProject(string projectCode) =>
             _dbContext.project.Any(o => o.code == projectCode && o.org_unit_code == CurrentOrgUnit());
 
@@ -143,13 +164,16 @@ namespace meesuanruam_service.Controllers
                                                            files = _dbContext.file.Where(e => e.code_reference == re.report_code)
                                                                       .Select(o => new FileAttachment()
                                                                       {
-                                                                          path = "https://meesuanruamstorage.blob.core.windows.net/meesuanruam-container/" + o.file_path,
+                                                                          path = o.id.ToString(),
                                                                           name = o.name,
                                                                           type = o.type,
                                                                           size = o.size
                                                                       }).ToList()
                                                        }
                                                  ).ToList();
+
+                getReportModel.ForEach(o => AttachFileLinks(o.files, orgCode));
+
                 res.status = "success";
                 res.result = getReportModel;
                 return Ok(res);
@@ -182,12 +206,15 @@ namespace meesuanruam_service.Controllers
                     files = _dbContext.file.Where(e => e.code_reference == o.comment_code)
                                                     .Select(o => new FileAttachment()
                                                     {
-                                                        path = "https://meesuanruamstorage.blob.core.windows.net/meesuanruam-container/" + o.file_path,
+                                                        path = o.id.ToString(),
                                                         name = o.name,
                                                         type = o.type,
                                                         size = o.size
                                                     }).ToList()
                 }).ToList();
+
+                getComments.ForEach(o => AttachFileLinks(o.files, orgCode));
+
                 res.status = "success";
                 res.result = getComments;
                 return Ok(res);

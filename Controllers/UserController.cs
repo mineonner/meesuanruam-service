@@ -98,21 +98,8 @@ namespace meesuanruam_service.Controllers
                     another_detail = re.report_topic.another_detail,
                 });
 
-                if (re.files.Count > 0)
-                {
-                    foreach (FileAttachment file in re.files)
-                    {
-                        _dbContext.file.Add(new FILE()
-                        {
-                            code_reference = code,
-                            file_path = folder + "/" + code + "/" + file.name,
-                            name = file.name,
-                            type = file.type,
-                            size = file.size,
-                        });
-                    }
-                }
-
+                // แถว FILE ถูกเขียนที่ UploadController หลังไฟล์ลงดิสก์สำเร็จแล้ว
+                // ถ้าเขียนตรงนี้ (แบบเดิม) แล้วอัปโหลดพลาด จะเหลือแถวชี้ไฟล์ที่ไม่มีอยู่
                 _dbContext.SaveChanges();
 
 
@@ -169,21 +156,8 @@ namespace meesuanruam_service.Controllers
                     org_unit_code = orgUnitCode
                 });
 
-                if (saveCom.files.Count > 0)
-                {
-                    foreach (FileAttachment file in saveCom.files)
-                    {
-                        _dbContext.file.Add(new FILE()
-                        {
-                            code_reference = code,
-                            file_path = folder + "/" + code + "/" + file.name,
-                            name = file.name,
-                            type = file.type,
-                            size = file.size,
-                        });
-                    }
-                }
-
+                // แถว FILE ถูกเขียนที่ UploadController หลังไฟล์ลงดิสก์สำเร็จแล้ว
+                // ถ้าเขียนตรงนี้ (แบบเดิม) แล้วอัปโหลดพลาด จะเหลือแถวชี้ไฟล์ที่ไม่มีอยู่
                 _dbContext.SaveChanges();
 
 
