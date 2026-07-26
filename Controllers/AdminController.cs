@@ -18,9 +18,11 @@ namespace meesuanruam_service.Controllers
         private readonly DTO.meeDB _dbContext;
         private readonly ILogger<UserController> _logger;
         private readonly EmailService _emailService;
+        private readonly OrgUnitService _orgUnitService;
         private readonly string _keyProject;
-        public AdminController(ILogger<UserController> logger, meeDB _context, IConfiguration config, EmailService emailService)
+        public AdminController(ILogger<UserController> logger, meeDB _context, IConfiguration config, EmailService emailService, OrgUnitService orgUnitService)
         {
+            _orgUnitService = orgUnitService;
             _logger = logger;
             _dbContext = _context;
             _emailService = emailService;
@@ -52,6 +54,17 @@ namespace meesuanruam_service.Controllers
                     USER result = _dbContext.user.SingleOrDefault(b => b.user_email == log.user_email);
                     if (result != null && _hashService.Verify(log.password, result.password))
                     {
+                        // แอดมินล็อกอินได้เฉพาะโดเมนของ อปท. ตัวเอง
+                        // ใช้ Origin เพื่อ "จำกัดเพิ่ม" เท่านั้น สิทธิ์เข้าถึงข้อมูลยังมาจาก
+                        // USER.org_unit_code เหมือนเดิม ปลอม Origin จึงไม่ได้อะไรเพิ่ม
+                        string? originOrg = _orgUnitService.TryResolveFromOrigin(HttpContext.Request.Headers["Origin"].ToString());
+                        if (originOrg != result.org_unit_code)
+                        {
+                            _logger.LogWarning("ปฏิเสธ login {Email}: โดเมนที่เรียกเข้ามาเป็นของ อปท. {OriginOrg} แต่บัญชีเป็นของ {UserOrg}",
+                                log.user_email, originOrg ?? "(ไม่รู้จัก)", result.org_unit_code);
+                            return StatusCode(401);
+                        }
+
                         if (result.begin_date < DateTime.Now && result.end_date > DateTime.Now)
                         {
 

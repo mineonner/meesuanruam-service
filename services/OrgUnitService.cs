@@ -23,6 +23,22 @@ namespace meesuanruam_service.services
                 throw new InvalidOperationException("request ไม่มี Origin header จึงระบุ อปท. ไม่ได้");
             }
 
+            // ห้าม fallback เป็น '0001' เงียบๆ ไม่งั้นข้อมูลของทุก อปท. จะปนกันโดยไม่มีใครรู้
+            return TryResolveFromOrigin(origin)
+                ?? throw new InvalidOperationException($"โดเมน '{origin}' ไม่ตรงกับ อปท. ใดในตาราง ORG_UNIT");
+        }
+
+        /// <summary>
+        /// เหมือน ResolveFromOrigin แต่คืน null แทนการโยน exception
+        /// ใช้ตอน login ที่ต้องการตอบ 401 เฉยๆ ไม่ใช่ 500
+        /// </summary>
+        public string? TryResolveFromOrigin(string? origin)
+        {
+            if (string.IsNullOrWhiteSpace(origin))
+            {
+                return null;
+            }
+
             string wanted = Normalize(origin);
 
             // ponytail: ORG_UNIT มี 6 แถว ดึงมาเทียบใน memory ง่ายกว่าเขียน SQL ให้ normalize
@@ -31,13 +47,7 @@ namespace meesuanruam_service.services
                 .AsEnumerable()
                 .FirstOrDefault(o => Normalize(o.domain_name) == wanted);
 
-            if (match == null)
-            {
-                // ห้าม fallback เป็น '0001' เงียบๆ ไม่งั้นข้อมูลของทุก อปท. จะปนกันโดยไม่มีใครรู้
-                throw new InvalidOperationException($"โดเมน '{origin}' ไม่ตรงกับ อปท. ใดในตาราง ORG_UNIT");
-            }
-
-            return match.code;
+            return match?.code;
         }
 
         private static string Normalize(string url) => url.Trim().TrimEnd('/').ToLowerInvariant();
