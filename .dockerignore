@@ -1,0 +1,12 @@
+bin/
+obj/
+.git/
+.gitignore
+Dockerfile
+.dockerignore
+
+# ห้ามเข้า image เด็ดขาด: มีรหัส SQL, JWT key, รหัส Gmail
+# ค่าพวกนี้ส่งผ่าน environment variable จาก compose แทน
+appsettings.json
+appsettings.Development.json
+Properties/launchSettings.json
