@@ -239,6 +239,8 @@ namespace meesuanruam_service.Controllers
                     }
                 }
 
+                List<PROJECT_FILE> saved = new List<PROJECT_FILE>();
+
                 foreach (IFormFile file in body.formFiles)
                 {
                     string? safeName = FileStorageService.SanitizeFileName(file.FileName);
@@ -263,10 +265,11 @@ namespace meesuanruam_service.Controllers
                         dup.file_path = relativePath;
                         dup.type = file.ContentType;
                         dup.size = file.Length;
+                        saved.Add(dup);
                     }
                     else
                     {
-                        _dbContext.project_file.Add(new PROJECT_FILE()
+                        PROJECT_FILE row = new PROJECT_FILE()
                         {
                             project_code = projectCode,
                             measures_prefix = body.measuresPrefix!,
@@ -274,13 +277,28 @@ namespace meesuanruam_service.Controllers
                             name = safeName,
                             type = file.ContentType,
                             size = file.Length,
-                        });
+                        };
+                        _dbContext.project_file.Add(row);
+                        saved.Add(row);
                     }
                 }
 
+                // SaveChanges ต้องมาก่อน ไม่งั้น id ของแถวใหม่ยังเป็น 0
                 _dbContext.SaveChanges();
 
+                // คืนแถวที่สร้างพร้อมลิงก์ที่เซ็นแล้ว เพื่อให้ frontend มี id ไว้สั่งลบได้ทันที
+                string baseUrl = $"{Request.Scheme}://{Request.Host}/api/v1/Upload/file?t=";
                 res.status = "success";
+                res.result = saved.Select(o => new ProjectFileResModel
+                {
+                    id = o.id,
+                    measures_prefix = o.measures_prefix,
+                    path = baseUrl + _hashService.createFileToken(o.id, orgUnitCode, "project_file"),
+                    name = o.name,
+                    type = o.type,
+                    size = o.size,
+                }).ToList();
+
                 return Ok(res);
             }
             catch (Exception ex)
