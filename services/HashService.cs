@@ -62,9 +62,12 @@ namespace meesuanruam_service.services
         }
 
         /// <summary>
-        /// สร้าง token อายุสั้นสำหรับฝังใน URL ดาวน์โหลดไฟล์แนบ
+        /// สร้าง token สำหรับฝังใน URL ดาวน์โหลดไฟล์แนบ
         /// จำเป็นเพราะ frontend เปิดไฟล์ด้วย &lt;a href&gt; ซึ่งแนบ Authorization header ไม่ได้
-        /// อายุสั้นเพื่อจำกัดความเสียหายถ้าลิงก์หลุดออกไปนอกวงผู้มีสิทธิ์
+        ///
+        /// อายุเท่ากับ JWT ของ session (480 นาที) ตั้งสั้นกว่านี้ไม่ได้เพิ่มความปลอดภัยจริง
+        /// เพราะผู้ใช้แค่รีเฟรชหน้าก็ได้ลิงก์ใหม่ แต่ทำให้หน้าแบบประเมินที่คนกรอกนานเป็นชั่วโมง
+        /// กดโหลดไฟล์แล้วได้ 401 ทั้งที่ยังล็อกอินอยู่
         /// </summary>
         public string createFileToken(long fileId, string orgUnitCode, string kind)
         {
@@ -79,7 +82,7 @@ namespace meesuanruam_service.services
                     // แยกว่า id นี้อยู่ตาราง FILE หรือ PROJECT_FILE กัน token ข้ามตารางกัน
                     new Claim("kind", kind),
                 },
-                expires: DateTime.UtcNow.AddMinutes(15),
+                expires: DateTime.UtcNow.AddMinutes(480),
                 signingCredentials: credentials);
 
             return new JwtSecurityTokenHandler().WriteToken(token);
