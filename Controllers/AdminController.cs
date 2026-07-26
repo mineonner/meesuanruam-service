@@ -629,6 +629,9 @@ namespace meesuanruam_service.Controllers
 
                 res.status = "success";
                 res.message = "บันทึกสำเร็จ";
+                // คืนรหัสโครงการกลับไปเหมือนที่ saveComment ทำ เพื่อให้หน้าเว็บอัปไฟล์ต่อได้ทันที
+                // โครงการที่เพิ่งสร้างยังไม่มีรหัสอยู่ในมือ frontend
+                res.result = HashService.AesEncryptString(_keyProject, projectCode);
                 return Ok(res);
             }
             catch (Exception ex)
